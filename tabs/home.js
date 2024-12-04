@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Alert } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import * as tf from '@tensorflow/tfjs';
 
@@ -18,12 +18,15 @@ const Home = ({ onClassify }) => {
           const imageUri = response.assets[0].uri;
           setSelectedImage(imageUri);
 
-          // Perform classification
-          const result = await classifyImage(imageUri);
-          setClassificationResult(result);
+          try {
+            const result = await classifyImage(imageUri);
+            setClassificationResult(result);
 
-          // You can pass the result to App.js if needed
-          if (onClassify) onClassify(imageUri, result);
+            if (onClassify) onClassify(imageUri, result);
+          } catch (error) {
+            Alert.alert('Error', 'Failed to classify the image. Please try again.');
+            console.error('Error classifying image:', error);
+          }
         }
       }
     );
@@ -31,33 +34,38 @@ const Home = ({ onClassify }) => {
 
   const classifyImage = async (imageUri) => {
     try {
+      console.log('Initializing TensorFlow.js...');
       await tf.ready();
-
-      // Load TensorFlow.js model
-      const model = await tf.loadLayersModel('/model/model.json');
-
-      // Preprocess the image
-      const imageElement = document.createElement('img');
+  
+      console.log('Loading model...');
+      const model = await tf.loadLayersModel('/assets/model/model.json');
+      console.log('Model loaded successfully.');
+  
+      // Load image from URI
+      const imageElement = new Image();
       imageElement.src = imageUri;
-
-      await new Promise((resolve) => {
+  
+      await new Promise((resolve, reject) => {
         imageElement.onload = resolve;
+        imageElement.onerror = reject;
       });
-
+  
+      // Preprocess the image
       const imageTensor = tf.browser
         .fromPixels(imageElement)
-        .resizeBilinear([224, 224]) // Resize to model input size
-        .div(255.0) // Normalize pixel values
+        .resizeBilinear([299, 299]) // Resize to match model input size
+        .div(255.0) 
         .expandDims(0);
-
-      // Make prediction
+  
+      console.log('Running prediction...');
       const prediction = model.predict(imageTensor);
       const predictedClass = prediction.argMax(-1).dataSync()[0];
-
+  
       const classes = ['Flat Foot', 'Normal Arch', 'High Arch'];
+      console.log('Classification Result:', classes[predictedClass]);
       return classes[predictedClass];
     } catch (error) {
-      console.error('Error classifying image:', error);
+      console.error('Error during classification:', error);
       return 'Error';
     }
   };
@@ -74,11 +82,12 @@ const Home = ({ onClassify }) => {
       <View style={styles.tabContent}>
         {selectedImage ? (
           <>
-            <Image
-              style={styles.tabImage}
-              source={{ uri: selectedImage }}
-            />
-            <Text style={styles.resultText}>Result: {classificationResult}</Text>
+            <Image style={styles.tabImage} source={{ uri: selectedImage }} />
+            {classificationResult ? (
+              <Text style={styles.resultText}>Result: {classificationResult}</Text>
+            ) : (
+              <Text style={styles.loadingText}>Classifying...</Text>
+            )}
             <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteImage}>
               <Text style={styles.buttonText}>Delete Image</Text>
             </TouchableOpacity>
@@ -137,10 +146,17 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginBottom: 20,
   },
+  loadingText: {
+    fontSize: 18,
+    fontStyle: 'italic',
+    marginBottom: 20,
+    color: '#FF8C00',
+  },
   resultText: {
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 20,
+    color: '#2c3e50',
   },
   captureButton: {
     backgroundColor: '#2c3e50',
